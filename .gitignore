@@ -6,6 +6,12 @@
 __pycache__/
 *.py[cod]
 
+# 演示任务运行产物（galgame_coding/scratch 下）
+galgame_coding/scratch/*.db
+
+# 角色档案（玩家攻略的角色，本地存档）
+galgame_coding/save/
+
 # 编辑器 / 系统
 .vscode/
 .idea/

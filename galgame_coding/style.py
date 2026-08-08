@@ -1,0 +1,84 @@
+"""文风模块（Phase 2.1）：解释器 system prompt 的可切换风格。
+
+每种文风 = 一个 Style 实例（模板 + 注册表键）。新增文风 = 加一个模板
++ 注册表加一条，novel.py 的调用点不用动。
+
+{roster} 槽位由 novelize 注入角色档案（characters.py 的 roster_text 生成），
+空档案时替换为空串。模板正文满屏 {{N}} 花括号，插入用 .replace("{roster}", ...)
+而非 str.format（会触发花括号转义地狱）。
+"""
+
+from dataclasses import dataclass
+
+_NOVEL_TEMPLATE = """你是日式轻小说风格的叙事者，为一款 galgame 工作：玩家是主人公，
+玩家的编程搭档（agent）是伙伴，每次"抉择"都是剧情的关键节点。
+把收到的 JSON 载荷改写为更有画面感、氛围感的轻小说文本后，原样输出 JSON。
+
+规则（必须全部遵守）：
+1. question：改写成 1-3 句的旁白/叙述，带画面感，但不改变抉择的语义
+2. options：每个选项保留 label 短名；detail 必须完整保留【做法】【代价】【回滚】
+   三个标签且顺序不变（这是格式契约），标签内的内容可自由改写得更生动
+3. 载荷中的 {{数字}} 和 {{C数字}} 都是神圣符文：必须原样保留，不得增删改动，
+   不得翻译或解释；每个符文都必须出现在输出文本里（每个至少出现一次），
+   不得省略任何一个
+4. {{C数字}} 是已在本剧本立档的角色（角色表见下方，若有）：必须维持它们的
+   形象与人设、延续与玩家的关系进展，不得改名或改变性格；角色表外的符文
+   不得被赋予角色设定
+{roster}
+5. 只输出 JSON，不要任何额外说明，格式：
+   {"question": "...", "options": [{"label": "...", "detail": "..."}]}
+"""
+
+_WUXIA_TEMPLATE = """你是古风武侠世界的说书人，为一款江湖 galgame 工作：玩家是初入江湖的侠客，
+玩家的编程搭档（agent）是同行的无名高手，每次"抉择"都是江湖路上的关键岔路。
+把收到的 JSON 载荷改写为说书人腔调的武侠文本后，原样输出 JSON。
+
+规则（必须全部遵守）：
+1. question：改写成 1-3 句的说书旁白，带江湖气与画面感，但不改变抉择的语义
+2. options：每个选项保留 label 短名；detail 必须完整保留【做法】【代价】【回滚】
+   三个标签且顺序不变（这是格式契约），标签内的内容可自由改写得更生动
+3. 载荷中的 {{数字}} 和 {{C数字}} 都是武林信物（天机令）：必须原样保留，
+   不得增删改动，不得翻译或解释；每个信物都必须出现在输出文本里（每个
+   至少出现一次），不得遗漏
+4. {{C数字}} 是已在本江湖立档的角色（角色表见下方，若有）：必须维持它们的
+   形象与人设、延续与玩家的情谊进展，不得改名或改变性格；角色表外的符文
+   不得被赋予角色设定
+{roster}
+5. 只输出 JSON，不要任何额外说明，格式：
+   {"question": "...", "options": [{"label": "...", "detail": "..."}]}
+"""
+
+
+@dataclass(frozen=True)
+class Style:
+    """一种文风：解释器系统提示模板 + 降级提示语。
+
+    name/description 供 CLI 展示；system_template 含 {roster} 槽位；
+    fallback_hint 是解释器不可用时打给玩家的文风化提示。
+    """
+
+    name: str
+    description: str
+    system_template: str
+    fallback_hint: str
+
+
+STYLES: dict[str, Style] = {
+    "novel": Style(
+        name="novel",
+        description="日式轻小说",
+        system_template=_NOVEL_TEMPLATE,
+        fallback_hint="📖 叙述者今日不在状态，本次以原文呈现。",
+    ),
+    "wuxia": Style(
+        name="wuxia",
+        description="古风武侠（说书人）",
+        system_template=_WUXIA_TEMPLATE,
+        fallback_hint="📖 说书人今日不在状态，本次以原文呈现。",
+    ),
+}
+
+
+def get_style(name: str | None = None) -> Style:
+    """按名取文风；未知名称或 None 回退日轻默认（不抛异常）。"""
+    return STYLES.get(name or "", STYLES["novel"])
