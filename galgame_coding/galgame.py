@@ -30,7 +30,7 @@ from .style import Style
 from .tools import make_ask_player
 
 REPO = "D:/github/just_for_fun"
-MAX_TURNS = 15
+MAX_TURNS = 60  # Phase 3.1：五章大任务需要更多轮次（15 会被多章节会话提前截断）
 
 
 class _QuitSignal:

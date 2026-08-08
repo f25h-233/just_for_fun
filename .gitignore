@@ -9,6 +9,9 @@ __pycache__/
 # 演示任务运行产物（galgame_coding/scratch 下）
 galgame_coding/scratch/*.db
 
+# Phase 3.1：agent 唯一可写产出目录（任务约束"所有产出只写这里"）
+galgame_coding/workspace/
+
 # 角色档案（玩家攻略的角色，本地存档）
 galgame_coding/save/
 
