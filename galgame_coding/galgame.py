@@ -26,6 +26,7 @@ from .characters import Cast
 from .frontends.terminal import TerminalFrontend
 from .history import History
 from .prompt import build_prompt
+from .story import StoryMemory
 from .style import Style
 from .tools import make_ask_player
 
@@ -88,6 +89,7 @@ async def run(
         Cast.reset()
     cast = Cast.load()
     history = History()
+    story = StoryMemory()  # Phase 3.2 剧情记忆（会话级，与 History 同级）
     current_task = build_prompt(task, light_novel=light_novel)
     while True:
         rollback_at = await run_session(
@@ -96,6 +98,7 @@ async def run(
             style=style,
             cast=cast,
             history=history,
+            story=story,
         )
         if rollback_at is None:
             break
@@ -116,6 +119,7 @@ async def run_session(
     style: Style | None,
     cast: Cast,
     history: History,
+    story: StoryMemory,
 ) -> int | None:
     """单次会话：注入 prompt，循环收消息直到结果或玩家退出/回档。
 
@@ -128,6 +132,7 @@ async def run_session(
             TerminalFrontend(), quit_signal.signal,
             style=style, cast=cast, read_only=light_novel,
             history=history, rollback_signal=quit_signal.signal_rollback,
+            story=story,
         )],
     )
     options = ClaudeAgentOptions(

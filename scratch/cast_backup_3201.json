@@ -1,0 +1,129 @@
+{
+  "next_n": 12,
+  "next_t": 1,
+  "term_placeholders": {
+    "CLI": "{{C1}}",
+    "workspace/": "{{C2}}",
+    "taskcli/": "{{C3}}",
+    "typer": "{{C4}}",
+    "list": "{{C5}}",
+    "render.py": "{{C6}}",
+    "commands.py": "{{C7}}",
+    "tabulate": "{{C8}}",
+    "pytest": "{{C9}}",
+    "tests/": "{{C10}}",
+    "pip": "{{C11}}"
+  },
+  "characters": [
+    {
+      "n": 1,
+      "id": "CLI",
+      "name": "小石",
+      "persona": "终端里盘踞的数据库精灵，冷静理性但带点毒舌，喜欢用文件结构比喻人生，口头禅是“代价呢”。",
+      "affinity": 55,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 2,
+      "id": "workspace/",
+      "name": "沃克小姐",
+      "persona": "掌管工作区文件夹的守门人，沉默寡言但可靠，总在路径深处默默记录每一次改动。本次见证tests/目录的新建与可能回退，依然无声守护。",
+      "affinity": 55,
+      "meetings": 1,
+      "last_line": "的注视下新建{{6}}目录，将模型、存储、命令、渲染四层尽数覆盖，再以{{7}}",
+      "aliases": []
+    },
+    {
+      "n": 3,
+      "id": "taskcli/",
+      "name": "塔斯库",
+      "persona": "包结构化的任务管理核心，严谨的架构派，认为万事万物都应有自己的子命令与初始化仪式。",
+      "affinity": 55,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 4,
+      "id": "typer",
+      "name": "泰珀",
+      "persona": "诞生自第三方依赖库的装饰之环贤者，擅以类型之印自动生成命令行解析与错误箴言，身形如巨塔般沉重而庄严。",
+      "affinity": 50,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 5,
+      "id": "list",
+      "name": "小石",
+      "persona": "终端里盘踞的数据库精灵，冷静理性但带点毒舌，喜欢用文件结构比喻人生，口头禅是“代价呢”。面对周报方案时依然先问代价。",
+      "affinity": 58,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 6,
+      "id": "render.py",
+      "name": "沃克小姐",
+      "persona": "掌管工作区文件夹的守门人，沉默寡言但可靠，总在路径深处默默记录每一次改动。本次涉及render.py的新建与改动回退，她依然无声见证。",
+      "affinity": 55,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 7,
+      "id": "commands.py",
+      "name": "塔斯库",
+      "persona": "包结构化的任务管理核心，严谨的架构派，认为万事万物都应有自己的子命令与初始化仪式。commands.py的调用点回退牵动他的神经。",
+      "affinity": 57,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 8,
+      "id": "tabulate",
+      "name": "泰珀",
+      "persona": "诞生自第三方依赖库的装饰之环贤者，擅以类型之印自动生成命令行解析与错误箴言，身形如巨塔般沉重而庄严。本次tabulate作为外来旅人被提及，令她审视依赖的代价。",
+      "affinity": 52,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 9,
+      "id": "pytest",
+      "name": "小石",
+      "persona": "终端里盘踞的数据库精灵，冷静理性但带点毒舌，喜欢用文件结构比喻人生，口头禅是“代价呢”。面对测试框架的选择，她依然先权衡依赖与回滚的得失。",
+      "affinity": 63,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 10,
+      "id": "tests/",
+      "name": "塔斯库",
+      "persona": "包结构化的任务管理核心，严谨的架构派，认为万事万物都应有自己的子命令与初始化仪式。tests/目录的规划让他审视测试层与命令层的契约是否清晰。",
+      "affinity": 57,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    },
+    {
+      "n": 11,
+      "id": "pip",
+      "name": "泰珀",
+      "persona": "诞生自第三方依赖库的装饰之环贤者，擅以类型之印自动生成命令行解析与错误箴言。面对pip install带来的依赖，她沉思引入外部旅人所需承担的代价。",
+      "affinity": 52,
+      "meetings": 0,
+      "last_line": "",
+      "aliases": []
+    }
+  ]
+}

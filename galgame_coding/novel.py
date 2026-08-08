@@ -13,6 +13,15 @@ Phase 2.1：文风可切换（style.py）；角色档案（characters.py）—�
 角色词用 {{Cn}} 独立命名空间（跨轮稳定，同一角色永远同一符文），
 角色表注入 system prompt，改写成功后记账出场；{{Cn}} 缺失视为
 剧情崩坏直接降级（普通符文保持 Phase 2 行为）。
+
+Phase 3.2：剧情记忆（story.py，宿主侧，会话级）——主线贯穿与
+角色出场从"提示词恳求"变"结构性注入"：
+- _STORY_RULES 剧本纪律段（所有文风共享，拼接在文风模板之后）：
+  幕四拍 / 主角在场 / 角色纪律 / 幕间链接 / 对应法则 / 写回契约
+- 动态注入：梗概（首条+最近6条）→ 上一幕结尾（最近一幕改写全文），
+  顺序固定且贴近载荷（"最后注入优先级最高"实测结论）
+- 写回契约：解释器同一次调用顺带输出 summary_delta + importance，
+  宿主记账（fail-soft：缺失/坏格式静默沿用旧梗概，零新增调用）
 """
 
 import json
@@ -25,6 +34,7 @@ from .style import get_style
 
 if TYPE_CHECKING:
     from .characters import Cast
+    from .story import StoryMemory
     from .style import Style
 
 # 解释器副 agent（全局工具链，见 ~/.claude/CLAUDE.md）
@@ -93,6 +103,40 @@ def _char_runes(mapping: dict[str, str]) -> set[str]:
 
 
 _TAGS = ("【做法】", "【代价】", "【回滚】")
+
+# Phase 3.2 剧本纪律（所有文风共享，novelize 拼接在文风模板之后）。
+# 内容综合四路调研：幕四拍/角色出场纪律（佐佐木智广·橙光教程·网文钩子）、
+# 对应法则"神似"（Bastion/Hacknet/FIREBALL——做法→场景、代价→威胁且
+# 程度一致、回滚→退路、回顾式时态、禁夸大）、写回契约（RecurrentGPT）。
+# 注意：此处普通字符串拼接，不经过 str.format（纪律段含 {{数字}} 花括号，
+# format 会转义地狱）——与 style.py 模板的 {roster} 槽位同样规矩。
+_STORY_RULES = """【剧本纪律】（本场是本剧的又一场戏，写之前逐条自检）
+一、幕结构——一场戏四拍，缺一不可：
+  1. 开：用 1-2 句回指上一幕（画面/情绪/一句话），上一幕的钩子在这里回收；
+     若下方【前情】为空（这是第一幕），则以序幕开场
+  2. 承：本场的技术难题以角色对话与动作展开，禁止干巴巴陈述
+  3. 转：主角内心权衡，把选项写成"我"的动作/话语/心声，禁止写成方案对比清单
+  4. 结：选择的即时后果（角色反应/场景变化）+ 一个幕尾钩（悬念/预告/没说完的话）
+二、主角在场——"我"是行动者，不是解说员：
+  - 每场必须有"我"至少 1 句行动或心声
+  - 选项是主角在同一场景下的不同行动，不是功能列表
+三、角色纪律（{{C数字}} 是立档角色，是连续剧角色，不是名词）：
+  - 每场至少 1 位立档角色与主角实质对话（说话、表态，不是被提到）
+  - 连续 2 场没出场的角色，本场要让她被注意到（一句即可）
+  - 好感度高的角色更亲近，好感度低的更疏离
+四、幕间链接：
+  - 上一幕的结果是本场剧情的既定前提（角色记得、场景延续）
+  - 幕尾钩要指向本章或总目标，禁止另开无关新线
+五、对应法则（本场技术内容的呈现方式，这是"神似"的关键）：
+  - 每个【做法】→ 故事里的一个场景事件（一映射一，禁止合并、禁止删减）
+  - 【代价】→ 威胁或代价，程度必须与原文一致（原文是失败/风险，禁止写成成功）
+  - 【回滚】→ 退路/死里逃生
+  - 用回顾式口吻（像讲述已经发生的事）
+  - 可以埋一句"双关"（一句话在故事和技术两层同时成立），不强求
+六、写回（宿主据此记账，必须随 JSON 一并输出）：
+  - "summary_delta"：本场剧情 1-3 句摘要（含选择后的后果），不超过 120 字
+  - "importance"：本场对主线的重要性，0-3 的整数
+"""
 
 
 def _valid_payload(data, n_options: int) -> bool:
@@ -163,6 +207,7 @@ def novelize_payload(
     payload: dict,
     style: "Style | None" = None,
     cast: "Cast | None" = None,
+    story: "StoryMemory | None" = None,
 ) -> dict:
     """主入口：把 {question, options} 载荷按文风改写（玩家侧用）。
 
@@ -173,6 +218,11 @@ def novelize_payload(
     Phase 2.1 扩展：style 切换文风；cast 提供已立档角色的稳定占位符
     （跨轮次同一角色同一 {{Cn}}）与角色表（注入 system prompt），
     改写成功后记账出场。两个参数缺省 = Phase 2 精确行为。
+
+    Phase 3.2 扩展：story（剧情记忆）——system prompt 追加剧本纪律段
+    + 前情注入（梗概 → 上一幕结尾，顺序固定）；改写成功后从输出解析
+    写回契约（summary_delta/importance）记账。story 缺省 = Phase 2.1
+    精确行为。
     """
     style = style or get_style()
     if cast is not None:
@@ -205,11 +255,20 @@ def novelize_payload(
         for key in ("label", "detail"):
             opt[key], _ = mask(opt[key], mapping)
 
-    # 2. 调解释器（system prompt 由文风提供；{roster} 槽位注入角色表，
-    #    空档案时替换为空串）
+    # 2. 调解释器。system prompt 组装顺序固定（实测"最后注入优先级最高"，
+    #    接续锚点要离载荷最近）：文风模板（含 roster）→ 剧本纪律 →
+    #    前情梗概 → 上一幕结尾。纪律段是所有文风共享的拼接段
     system = style.system_template.replace(
         "{roster}", cast.roster_text() if cast else ""
     )
+    system += "\n\n" + _STORY_RULES
+    if story is not None:
+        ctx = story.context_text()
+        if ctx:
+            system += "\n\n【前情】（已发生的剧情，按序号，本场必须接续它们）\n" + ctx
+        prev = story.prev_scene_text()
+        if prev:
+            system += "\n\n【上一幕结尾】（本场必须从此刻之后继续）\n" + prev
     raw = _call_interpreter(json.dumps(masked, ensure_ascii=False), system)
     if raw is None:
         print(style.fallback_hint, flush=True)
@@ -222,30 +281,53 @@ def novelize_payload(
         print("⚠ 叙述者的回答缺字段或选项缺【做法】【代价】【回滚】三要素，本次以原文呈现。", flush=True)
         return payload
 
-    # 3. 角色符文缺失检测：发出的 {{Cn}} 必须全部出现在输出里——角色是
-    #    剧情核心，被省略 = 该角色从剧本消失，直接降级（普通符文保持
-    #    Phase 2 行为，仅靠提示词约束）。记账也在回填前（需用符文定位台词）。
+    # 3. 回填前快照（记账与角色检测要符文形态；回填会覆盖 data）
+    out_text = json.dumps(data, ensure_ascii=False)   # 符文形态全量（供角色检测/记账）
+    raw_question = data["question"]                   # 符文形态（供 prepare_scene）
+    raw_options = [dict(o) for o in data["options"]]  # 符文形态（供 prepare_scene）
+
+    # 4. 角色符文缺失检测（用符文快照）：发出的 {{Cn}} 必须全部出现在
+    #    输出里——角色是剧情核心，被省略 = 该角色从剧本消失，直接降级
+    #    （普通符文保持 Phase 2 行为，仅靠提示词约束）
     sent_runes = _char_runes(mapping)
-    out_text = json.dumps(data, ensure_ascii=False)
     if sent_runes:
         missing = sorted(r for r in sent_runes if r not in out_text)
         if missing:
             print(f"⚠ 角色 {missing} 从剧本中消失了，本次以原文呈现。", flush=True)
             return payload
-    if cast is not None:
-        cast.note_appearance(sent_runes, out_text)
-        cast.scene_raw_text = out_text
-        cast.scene_rune_to_term = {ph: term for term, ph in mapping.items()}
 
-    # 4. 回填
+    # 5. 回填
     data["question"] = unmask(data["question"], mapping)
     for opt in data["options"]:
         opt["label"] = unmask(opt["label"], mapping)
         opt["detail"] = unmask(opt["detail"], mapping)
 
-    # 5. 残留占位符兜底校验：正常应为空（说明解释器丢了符文）
-    leftovers = _leftover_placeholders(json.dumps(data, ensure_ascii=False))
+    # 6. 残留占位符兜底校验（2026-08-09 检查移至记账前：降级轮零记账——
+    #    玩家看到的是原文，剧情/角色记忆不能引用一场没演出的"剧情"；
+    #    Phase 2 遗留同款问题：cast 记账原在残留检查前，一并修复）。
+    #    渲染路径（question/options）正常应为空；范围收紧：写回字段
+    #    （summary_delta/importance）不进渲染路径，解释器在摘要里保留
+    #    符文是正常行为，不能误判为"丢符文"
+    render_text = json.dumps(
+        {"question": data["question"], "options": data["options"]}, ensure_ascii=False
+    )
+    leftovers = _leftover_placeholders(render_text)
     if leftovers:
         print(f"⚠ 叙述者弄丢了符文 {leftovers}，本次以原文呈现。", flush=True)
         return payload
+
+    # 7. 记账（所有检查通过后才记；用符文形态快照，需符文定位台词）
+    if cast is not None:
+        cast.note_appearance(sent_runes, out_text)
+        cast.scene_raw_text = out_text
+        cast.scene_rune_to_term = {ph: term for term, ph in mapping.items()}
+    # Phase 3.2 写回契约：解释器同一次调用顺带输出摘要+重要性，宿主记账。
+    # fail-soft——缺失/坏格式静默沿用旧梗概（记账不进渲染路径，不影响游戏）
+    if story is not None:
+        delta = data.get("summary_delta")
+        if isinstance(delta, str) and delta.strip():
+            story.record_summary(delta, data.get("importance"))
+        # 准备上一幕素材（符文形态——nonce 隔离：prev_scene 注入给解释器，
+        # 绝不能含原词；tools.py 在玩家选择后调 record_scene 提交）
+        story.prepare_scene(raw_question, raw_options)
     return data

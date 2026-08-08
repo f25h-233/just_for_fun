@@ -11,6 +11,7 @@ just_for_fun —— 兴趣项目集合，每个项目一个文件夹。当前仓
 - **Phase 2（已完成，2026-08-08）**：轻小说化。ask_player 载荷在渲染前经 `novel.py` 改写为日轻文本（nonce 占位符方案 + DeepSeek 网页版解释器），agent 侧仍见原文。验收 20/20（round-trip 10/10 + live 零篡改 10/10），真实会话跑通。
 - **Phase 2.1（已完成，2026-08-08）**：文风模块化（`style.py`：日轻 + 武侠可切换）+ 角色档案（`characters.py`：技术名词人格化/持久化，`{{C<n>}}` 独立命名空间跨轮稳定 + `editor.py` 编剧副 agent 每轮更新档案）。离线验收 6/6。
 - **Phase 3（已完成，2026-08-08）**：回档。玩家在抉择输入 `r` → 回档子菜单选目标轮次 → **切断当前会话 + 重建任务描述（已确定剧情摘要 + 回档指令）重启新会话**（SDK 会话内无法回退，回档 = 新会话）。核心：`history.py`（抉择历史 + 截断语义）、`prompt.py` 回档段追加在任务之后、`galgame.py` 外层回档循环。离线验收 10/10（`phase3_accept_rollback.py`）。
+- **Phase 3.2（进行中，2026-08-09）**：主线贯穿 + 角色出场 + "神似"对应（四路调研定稿）。核心：`story.py` 剧情记忆（宿主侧双层记忆：上一幕全文 + 每幕摘要滚动窗口）+ 解释器提示词 v2（剧本纪律共享段 `_STORY_RULES`：幕四拍/主角在场/角色纪律/幕间链接/对应法则/写回契约）+ 写回契约（解释器同次调用输出 `summary_delta`/`importance`，宿主记账，零新增调用）。**缺陷诊断（实测证据）**：cast.json 11 词立档 4 形象但 meetings 几乎全 0（角色被立档但从不进正文）；改写只是逐条文学化复述选项（无主线、选项像方案列表）。补全阶段待做：回档联动（story.truncate 接入 tools.py）+ 离线验收脚本 phase32_accept_story.py。
 - TardigradeMail（时光信）已迁出到 `../future_mail/`，此仓库不再涉及。
 
 工作语言为中文（zh-CN）：README、docstring、注释、prompt 均为中文。
@@ -31,6 +32,10 @@ just_for_fun —— 兴趣项目集合，每个项目一个文件夹。当前仓
 10. **merge_key（Phase 2.1）**：`去尾数字 + casefold`（SQLite/sqlite3/sqlite → 同一角色）；纯 casefold 对带数字变体不成立。persona 存中性本质（不存文风化台词）→ 切文风只换表皮、性格不塌。
 11. **回档 = 会话切断重启（Phase 3）**：SDK 会话内无法回退，回档必须 = 切断当前会话 + 用重建的任务描述开新会话。新会话任务 = 原任务 + 前 N-1 轮已确定抉择摘要（**追加在任务之后**，最后注入优先级最高——否则 tasks.py 里"动手前必须先调用 ask_player"会让回档后的 agent 重问已确定轮次）+ 回档指令（**独立注入**：回档到第 1 轮时 established 为空，但指令不能丢）。
 12. **History 截断语义（Phase 3）**：回档到第 N 轮 = 第 N..end 轮记录作废（truncate 到 N-1，截断而非"保留+过滤"——索引不重复、describe 无需参数、语义自洽）。每条记录**双存**：原文（agent 侧，prompt 重建用）+ 改写版（玩家侧，回档菜单展示用——玩家刚读过的就是改写版）。History 不持久化（会话内状态，Ctrl+C 即丢失；cast.json 是周目级资产才有 finally 兜底）。回档不改 cast（角色记得之前的分支）。回档不跑编剧（旧分支角色更新不进新档案）。
+13. **剧情记忆双层结构（Phase 3.2，四路调研定稿）**：解释器是无状态调用，记忆必须宿主侧维护、调用时注入——`story.py` 的 StoryMemory（会话级，与 History 同级）：**短时 = 上一幕改写全文**（prev_scene，直接接续，注入在最接近载荷处）+ **长时 = 每幕 1-3 句摘要**（summaries 滚动窗口：首条全局锚点 + 最近 6 条，防记忆膨胀——只增不删会让注入段噪声越来越大）。**nonce 隔离纪律：prev_scene/summaries 存符文形态**（{{N}}，含 {{C}}）——前情要注入给解释器，泄漏原词破坏"解释器只见符文"的核心隔离。玩家选择是宿主在 ask 后才知道的，用 prepare_scene（改写成功时准备）/record_scene（玩家选择后提交）两段式补上。
+14. **注入顺序固定（Phase 3.2）**：system prompt 组装 = 文风模板（含 roster）→ 剧本纪律 `_STORY_RULES`（所有文风共享的拼接段）→ 前情梗概 → 上一幕结尾。实证"最后注入优先级最高"——接续锚点要离载荷最近。剧本纪律内容（四路调研综合）：幕四拍（开·承接/承·角色对话展开/转·选项动作化/结·即时后果+幕尾钩）、主角在场（"我"每幕 ≥1 句行动或心声，选项禁方案列表）、角色纪律（每幕 ≥1 立档角色实质对话；连续 2 幕未出场要"点卯"；好感度档位定语气）、幕间链接（上幕结果是本幕既定前提；幕尾钩指向章级/总目标）、对应法则（【做法】→一个场景事件一映射一、【代价】→威胁程度与原文一致禁夸大失败为成功、【回滚】→退路；回顾式时态；双关行可选）、写回契约（summary_delta ≤120 字 + importance 0-3 随 JSON 一并输出）。
+15. **降级轮零记账（Phase 3.2 修复，含 Phase 2 遗留 bug）**：novelize 的记账（cast 出场/summary/上一幕素材）必须发生在**所有降级检查通过之后**——降级轮玩家看到的是原文，剧情/角色记忆不能引用一场没演出的"剧情"。顺序：回填前快照（符文形态）→ 角色符文缺失检测 → 回填 → 残留检查（渲染路径 question/options）→ 全过才记账。**Phase 2 遗留同款 bug**：cast 记账原在残留检查前，降级轮会记出场（已一并修复）。残留检查范围收紧：写回字段（summary_delta/importance）不进渲染路径，解释器在摘要里保留符文是正常行为，不能误判"丢符文"。
+16. **FIREBALL 教训（Phase 3.2 调研）**：LLM 改写真实日志的两个典型翻车——夸大结果（日志失败写成成功）与替玩家行动（叙述 agent/玩家做出日志中不存在的动作）。nonce 只防"篡改名词"，防不了这两类"叙述层犯罪"——靠提示词约束（对应法则）防，校验在提示词里而非结构。
 
 整体方向：用 `claude_agent_sdk`（Python）以宿主模式嵌入真实 Claude Code CLI，通过事件流 + 自定义工具与 agent 交互。
 
@@ -77,12 +82,13 @@ python -m galgame_coding.cli --reset-cast    # 清空角色档案（新周目/�
   - `cli.py` — 入口（Windows UTF-8 控制台处理 + KeyboardInterrupt 兜底）
   - `galgame.py` — 宿主核心：装配 server + 消息循环 + `_QuitSignal`（玩家退出/回档信号）+ **外层回档循环**（`run()` 单会话 `run_session()`，回档后重建任务重启）
   - `history.py` — **Phase 3 抉择历史**：ChoiceRecord（双存原文+改写版）+ History（record/truncate 截断/describe 已确定剧情）
-  - `tools.py` — `make_ask_player(frontend, quit_signal, history, rollback_signal)` 工厂，schema 为 `label`+`detail` 结构；回档路径截断历史+置信号+不跑编剧
+  - `story.py` — **Phase 3.2 剧情记忆**：StoryMemory（上一幕全文 prev_scene + 每幕摘要 summaries 滚动窗口，全符文形态）+ 写回契约记账（record_summary）+ 两段式上一幕（prepare_scene/record_scene）+ truncate（回档联动，补全阶段接入 tools.py）
+  - `tools.py` — `make_ask_player(frontend, quit_signal, history, rollback_signal, story)` 工厂，schema 为 `label`+`detail` 结构；回档路径截断历史+置信号+不跑编剧；ask 后 story.record_scene 提交上一幕
   - `prompt.py` — 决策化规则（必须问/禁止问/选项三要素）+ 任务组装（默认取 tasks.py 第一个）+ Phase 3 回档段（established/rollback_at 追加在任务之后）
   - `tasks.py` — 示例任务集（待办 CLI / 照片批量重命名 / md 表格转 CSV），`--menu` 可浏览
   - `frontend.py` + `frontends/terminal.py` — `Frontend` Protocol + `TerminalFrontend` 实现（Phase 4 换 pygame 只新增实现）；Phase 3 起 ask 带 history 参数、`RollbackRequest` 异常（输入 r 回档）
-  - `novel.py` — **Phase 2 轻小说化核心**：mask/unmask（nonce 占位符）、解释器封装（webagent.py 调 DeepSeek 网页版）、novelize_payload 主入口 + 多级降级；`extract_key_terms` 供验收脚本。Phase 2.1：`{{Cn}}` 角色命名空间播种/回填/缺失降级
-  - `style.py` — **Phase 2.1 文风注册表**：frozen Style dataclass（system_template + fallback_hint），`STYLES`/`get_style`；新增文风 = 加模板 + 注册表一条。roster 插入用 `.replace("{roster}", ...)`（模板满屏 `{{N}}`，勿用 str.format）
+  - `novel.py` — **Phase 2 轻小说化核心**：mask/unmask（nonce 占位符）、解释器封装（webagent.py 调 DeepSeek 网页版）、novelize_payload 主入口 + 多级降级；`extract_key_terms` 供验收脚本。Phase 2.1：`{{Cn}}` 角色命名空间播种/回填/缺失降级。Phase 3.2：`_STORY_RULES` 剧本纪律共享段（所有文风通用）+ story 动态注入（前情梗概→上一幕结尾，顺序固定）+ 写回契约记账 + 降级轮零记账（检查全过才记账）
+  - `style.py` — **Phase 2.1 文风注册表**：frozen Style dataclass（system_template + fallback_hint），`STYLES`/`get_style`；新增文风 = 加模板 + 注册表一条。Phase 3.2 起模板只管**口吻**（怎么说话）+ 符文/格式硬规则，叙事纪律在 novel.py 的 `_STORY_RULES`（新增文风自动获得完整剧本能力）。roster 插入用 `.replace("{roster}", ...)`（模板满屏 `{{N}}`，勿用 str.format）
   - `characters.py` — **Phase 2.1 角色档案**：Character/Cast（`{{Cn}}` 稳定占位、roster_text 注入解释器、note_appearance 记账、update_from_editor union 合并、原子写 save/load/reset，全 fail-soft）；`merge_key` 去尾数字+casefold；存档 `save/cast.json`（gitignore）
   - `editor.py` — **Phase 2.1 编剧副 agent**：webagent 调用 + 白名单契约校验（runes 闭集/name 1-20/persona 截 300/affinity 钳 0-100），fail-soft
   - `scratch/todo.py` — 演示任务产物（agent 按玩家选择的方案B 重写为 sqlite3 版，可删）

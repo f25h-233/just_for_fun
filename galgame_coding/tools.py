@@ -22,6 +22,10 @@ Phase 3 回档：玩家在 ask 时输入 r → 前端抛 RollbackRequest(n) →
 工具层截断历史（truncate 到 n-1）、置回档信号、返回收尾文本
 （与 PlayerQuit 同路径，**不跑编剧**——旧分支的角色更新不进新档案）。
 正常路径在 ask 之后 history.record 双存（原文=agent 侧、改写=玩家侧）。
+
+Phase 3.2 剧情记忆联动：每轮开头 story.begin_round（含降级轮——
+占号保轮号对齐）；回档路径 story.truncate(n-1) 与 history 同截断
+（按轮号过滤 + 恢复分支点的上一幕，见 story.py docstring）。
 """
 
 from typing import Annotated, Callable
@@ -33,6 +37,7 @@ from .editor import call_editor
 from .frontend import Frontend, PlayerQuit, RollbackRequest
 from .history import History
 from .novel import novelize_payload
+from .story import StoryMemory
 from .style import Style, get_style
 
 SCHEMA = {
@@ -54,6 +59,7 @@ def make_ask_player(
     read_only: bool = False,
     history: History | None = None,
     rollback_signal: Callable[[int], None] | None = None,
+    story: StoryMemory | None = None,
 ):
     """构造 ask_player 工具。
 
@@ -62,6 +68,8 @@ def make_ask_player(
     style/cast: Phase 2.1 —— 文风与角色档案；read_only 禁编剧与保存。
     history/rollback_signal: Phase 3 回档 —— 抉择记录（双存原文+改写）
     与回档信号（宿主据此切断会话并重启）；缺省时回档退化为退出。
+    story: Phase 3.2 剧情记忆 —— 解释器改写时注入前情/上一幕（novelize
+    内部记账 summary），玩家选择后宿主 record_scene 更新上一幕。
     """
     style = style or get_style()
 
@@ -73,12 +81,16 @@ def make_ask_player(
     async def ask_player(args: dict) -> dict:
         question = args["question"]
         options = args["options"]
+        if story is not None:
+            story.begin_round()  # Phase 3.2：轮号占号（降级轮也算一轮，保对齐）
         try:
             # 玩家侧：按文风改写（解释器失败时 novelize 内部降级为原文）
+            # Phase 3.2：story 注入前情/上一幕（novelize 内部记账 summary）
             novel = novelize_payload(
                 {"question": question, "options": options},
                 style=style,
                 cast=cast,
+                story=story,
             )
             if cast is not None and cast.scene_names:
                 print(f"🎭 本场登场：{'、'.join(cast.scene_names)}", flush=True)
@@ -110,6 +122,11 @@ def make_ask_player(
         # 记录本轮抉择（双存：原文=agent 侧、改写=玩家侧，回档菜单用改写版）
         if history is not None:
             history.record(question, novel["question"], options, novel["options"], pick)
+        # Phase 3.2：提交剧情记忆的"上一幕"（含玩家所选，下一幕接续锚点）。
+        # 素材由 novelize 在回填前 prepare_scene 备好（符文形态），此处
+        # 补上玩家选择后提交——改写时解释器看不见玩家选择
+        if story is not None:
+            story.record_scene(pick)
 
         # 编剧：best-effort 更新角色档案（玩家阅读延迟已过去；失败沿用旧档）
         if cast is not None and not read_only and cast.scene_raw_text:
