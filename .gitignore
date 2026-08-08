@@ -1,0 +1,13 @@
+# 本机监控/工具配置，不入库
+.nezha/
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
