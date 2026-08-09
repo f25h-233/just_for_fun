@@ -30,7 +30,7 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-from .style import get_style
+from .style import CHAR_RULES, get_style
 
 if TYPE_CHECKING:
     from .characters import Cast
@@ -77,10 +77,20 @@ def mask(text: str, mapping: dict[str, str] | None = None) -> tuple[str, dict[st
     return _IDENT_RE.sub(_repl, text), mapping
 
 
-def unmask(text: str, mapping: dict[str, str]) -> str:
-    """回填：占位符 → 原文。解释器侧丢失占位符的情况由调用方校验。"""
+def unmask(text: str, mapping: dict[str, str], cast: "Cast | None" = None) -> str:
+    """回填：占位符 → 原文。解释器侧丢失占位符的情况由调用方校验。
+
+    cast 非空时补充"已立档但本幕未播种"的 {{Ck}} 回填（2026-08-09）：
+    角色"点卯"（连续 2 幕未出场，解释器主动让其冒头）会让 roster 里
+    的符文出现在文本中，但这些符文不在本幕 mapping——按 cast 词表
+    全量回填，点卯不再残留降级。自造的 {{Ck}}（cast 也没有）仍残留
+    由调用方降级（安全侧不变）。
+    """
     for term, placeholder in mapping.items():
         text = text.replace(placeholder, term)
+    if cast is not None:
+        for term, placeholder in cast.term_placeholders.items():
+            text = text.replace(placeholder, term)
     return text
 
 
@@ -110,7 +120,13 @@ _TAGS = ("【做法】", "【代价】", "【回滚】")
 # 程度一致、回滚→退路、回顾式时态、禁夸大）、写回契约（RecurrentGPT）。
 # 注意：此处普通字符串拼接，不经过 str.format（纪律段含 {{数字}} 花括号，
 # format 会转义地狱）——与 style.py 模板的 {roster} 槽位同样规矩。
-_STORY_RULES = """【剧本纪律】（本场是本剧的又一场戏，写之前逐条自检）
+#
+# 角色纪律段条件化（2026-08-09 live 首幕降级修复）：本幕没有角色符文
+# 发出时用 _STORY_RULES_NO_CHAR 替换 _STORY_RULES_CHAR——后者教学了
+# {{C数字}} 语法（"是立档角色，是连续剧角色"），解释器在无角色可用的
+# 幕里会自造符文（live 实测自造 {{C2}}~{{C9}} 触发降级）。结构免疫：
+# 没发出的符文 = 对解释器不可见，与模板 {char_rules} 槽位同一纪律。
+_STORY_RULES_BASE = """【剧本纪律】（本场是本剧的又一场戏，写之前逐条自检）
 一、幕结构——一场戏四拍，缺一不可：
   1. 开：用 1-2 句回指上一幕（画面/情绪/一句话），上一幕的钩子在这里回收；
      若下方【前情】为空（这是第一幕），则以序幕开场
@@ -120,23 +136,28 @@ _STORY_RULES = """【剧本纪律】（本场是本剧的又一场戏，写之�
 二、主角在场——"我"是行动者，不是解说员：
   - 每场必须有"我"至少 1 句行动或心声
   - 选项是主角在同一场景下的不同行动，不是功能列表
-三、角色纪律（{{C数字}} 是立档角色，是连续剧角色，不是名词）：
-  - 每场至少 1 位立档角色与主角实质对话（说话、表态，不是被提到）
-  - 连续 2 场没出场的角色，本场要让她被注意到（一句即可）
-  - 好感度高的角色更亲近，好感度低的更疏离
-四、幕间链接：
+{char_discipline}
+三、幕间链接：
   - 上一幕的结果是本场剧情的既定前提（角色记得、场景延续）
   - 幕尾钩要指向本章或总目标，禁止另开无关新线
-五、对应法则（本场技术内容的呈现方式，这是"神似"的关键）：
+四、对应法则（本场技术内容的呈现方式，这是"神似"的关键）：
   - 每个【做法】→ 故事里的一个场景事件（一映射一，禁止合并、禁止删减）
   - 【代价】→ 威胁或代价，程度必须与原文一致（原文是失败/风险，禁止写成成功）
   - 【回滚】→ 退路/死里逃生
   - 用回顾式口吻（像讲述已经发生的事）
   - 可以埋一句"双关"（一句话在故事和技术两层同时成立），不强求
-六、写回（宿主据此记账，必须随 JSON 一并输出）：
+五、写回（宿主据此记账，必须随 JSON 一并输出）：
   - "summary_delta"：本场剧情 1-3 句摘要（含选择后的后果），不超过 120 字
   - "importance"：本场对主线的重要性，0-3 的整数
 """
+
+_STORY_RULES_CHAR = """三、角色纪律（{{C数字}} 是立档角色，是连续剧角色，不是名词）：
+  - 每场至少 1 位立档角色与主角实质对话（说话、表态，不是被提到）
+  - 连续 2 场没出场的角色，本场要让她被注意到（一句即可）
+  - 好感度高的角色更亲近，好感度低的更疏离"""
+
+# 无角色幕的替代段：不含 {{C数字}} 字样，且保持编号连续
+_STORY_RULES_NO_CHAR = """三、角色纪律：本场没有立档角色出场，叙事聚焦主角与搭档"""
 
 
 def _valid_payload(data, n_options: int) -> bool:
@@ -177,30 +198,37 @@ def _parse_interpreter(raw: str) -> dict | None:
         return None
 
 
-def _call_interpreter(payload_json: str, system_prompt: str) -> str | None:
+def _call_interpreter(payload_json: str, system_prompt: str, retries: int = 1) -> str | None:
     """同步调 webagent.py（DeepSeek 网页版），返回其 --json stdout。
 
     失败（网络/凭证/超时/非零退出）返回 None，由调用方降级。
     system_prompt 由文风（style.py）提供。失败原因打印到终端
     （2026-08-08 增加可观测性：此前只打 fallback_hint，无法诊断）。
+
+    retries：失败重试次数（2026-08-09 live 实测：DeepSeek 网页版
+    输出截断/超时是随机故障，重试一次成功率可观，显著降低无谓降级）。
     """
-    cmd = [sys.executable, WEBAGENT, "ds", payload_json, "--system", system_prompt, "--json"]
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=WEB_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        print(f"⚠ 叙述者超过 {WEB_TIMEOUT}s 没回应（网络慢或 DeepSeek 排队），本次以原文呈现。", flush=True)
-        return None
-    except OSError as exc:
-        print(f"⚠ 叙述者召唤失败（{type(exc).__name__}），本次以原文呈现。", flush=True)
-        return None
-    if proc.returncode != 0:
-        tail = proc.stderr.strip().splitlines()[-1][:80] if proc.stderr.strip() else "无诊断输出"
-        print(f"⚠ 叙述者退出码 {proc.returncode}（{tail}），本次以原文呈现。", flush=True)
-        return None
-    return proc.stdout
+    last_reason = "未知故障"
+    for attempt in range(retries + 1):
+        cmd = [sys.executable, WEBAGENT, "ds", payload_json, "--system", system_prompt, "--json"]
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=WEB_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            last_reason = f"超过 {WEB_TIMEOUT}s 没回应（网络慢或 DeepSeek 排队）"
+            continue
+        except OSError as exc:
+            last_reason = f"召唤失败（{type(exc).__name__}）"
+            continue
+        if proc.returncode != 0:
+            tail = proc.stderr.strip().splitlines()[-1][:80] if proc.stderr.strip() else "无诊断输出"
+            last_reason = f"退出码 {proc.returncode}（{tail}）"
+            continue
+        return proc.stdout
+    print(f"⚠ 叙述者{last_reason}，本次以原文呈现。", flush=True)
+    return None
 
 
 def novelize_payload(
@@ -230,6 +258,8 @@ def novelize_payload(
         cast.scene_names = []
         cast.scene_raw_text = ""
         cast.scene_rune_to_term = {}
+        # 点卯：全体缺席计数 +1（出场在记账时清零）
+        cast.tick_absent()
     # 1. 提取所有文本域并占位；角色词先播种进共享 mapping（跨轮稳定），
     #    普通词由 mask 从 len(mapping) 起编号，天然避开 {{Cn}} 命名空间
     masked = {
@@ -257,11 +287,31 @@ def novelize_payload(
 
     # 2. 调解释器。system prompt 组装顺序固定（实测"最后注入优先级最高"，
     #    接续锚点要离载荷最近）：文风模板（含 roster）→ 剧本纪律 →
-    #    前情梗概 → 上一幕结尾。纪律段是所有文风共享的拼接段
-    system = style.system_template.replace(
-        "{roster}", cast.roster_text() if cast else ""
+    #    前情梗概 → 上一幕结尾。纪律段是所有文风共享的拼接段。
+    #    角色教学条件化（2026-08-09 live 首幕降级修复）：cast 为空时
+    #    模板 {char_rules} 槽位、roster、纪律段"三"都不注入 {{C}} 语法
+    #    ——解释器看不到语法就不会自造符文（结构免疫）。cast 非空即注入
+    #    （哪怕本幕未播种）：角色表 + 纪律让解释器可以"点卯"未出场的
+    #    角色，宿主 unmask 按 cast 词表全量回填（见 unmask 注释）。
+    sent_runes = _char_runes(mapping)
+    roster = cast.roster_text() if cast else ""
+    char_rules = CHAR_RULES if roster else ""
+    char_discipline = _STORY_RULES_CHAR if roster else _STORY_RULES_NO_CHAR
+    system = style.system_template.replace("{roster}", roster).replace(
+        "{char_rules}", char_rules
     )
-    system += "\n\n" + _STORY_RULES
+    system += "\n\n" + _STORY_RULES_BASE.replace("{char_discipline}", char_discipline)
+    # 点卯必现（2026-08-09）：选连续缺席 ≥2 幕的角色注入硬指令——立档词
+    # 与后续幕载荷常无重叠（五章话题独立），"纪律段恳求"实测不生效，
+    # 宿主点名让角色出场。符文形态注入，unmask 按 cast 词表回填。
+    if cast is not None:
+        due = cast.pick_due_char()
+        if due:
+            ph, name, absent = due
+            system += (
+                f"\n\n【本场必现】{ph}（{name}）已连续 {absent} 幕未登场，"
+                "本场必须让她出场至少一次（一句对话或露面即可）。"
+            )
     if story is not None:
         ctx = story.context_text()
         if ctx:
@@ -269,11 +319,20 @@ def novelize_payload(
         prev = story.prev_scene_text()
         if prev:
             system += "\n\n【上一幕结尾】（本场必须从此刻之后继续）\n" + prev
-    raw = _call_interpreter(json.dumps(masked, ensure_ascii=False), system)
+    # 重试一次（2026-08-09 live 实测）：DeepSeek 网页版输出截断/超时
+    # 是随机故障，调用层已内部重试（retries=1），解析失败这里再补一轮
+    data = None
+    raw = None
+    for _attempt in range(2):
+        raw = _call_interpreter(json.dumps(masked, ensure_ascii=False), system)
+        if raw is None:
+            break  # 调用层已重试过，不再套娃
+        data = _parse_interpreter(raw)
+        if data is not None:
+            break
     if raw is None:
         print(style.fallback_hint, flush=True)
         return payload
-    data = _parse_interpreter(raw)
     if data is None:
         print("⚠ 叙述者的回答不是可解析的 JSON，本次以原文呈现。", flush=True)
         return payload
@@ -288,19 +347,19 @@ def novelize_payload(
 
     # 4. 角色符文缺失检测（用符文快照）：发出的 {{Cn}} 必须全部出现在
     #    输出里——角色是剧情核心，被省略 = 该角色从剧本消失，直接降级
-    #    （普通符文保持 Phase 2 行为，仅靠提示词约束）
-    sent_runes = _char_runes(mapping)
+    #    （普通符文保持 Phase 2 行为，仅靠提示词约束）。sent_runes 已
+    #    在拼接 system 时算过，复用
     if sent_runes:
         missing = sorted(r for r in sent_runes if r not in out_text)
         if missing:
             print(f"⚠ 角色 {missing} 从剧本中消失了，本次以原文呈现。", flush=True)
             return payload
 
-    # 5. 回填
-    data["question"] = unmask(data["question"], mapping)
+    # 5. 回填（cast 传参：点卯的 {{Ck}} 也按 cast 词表回填，不残留）
+    data["question"] = unmask(data["question"], mapping, cast)
     for opt in data["options"]:
-        opt["label"] = unmask(opt["label"], mapping)
-        opt["detail"] = unmask(opt["detail"], mapping)
+        opt["label"] = unmask(opt["label"], mapping, cast)
+        opt["detail"] = unmask(opt["detail"], mapping, cast)
 
     # 6. 残留占位符兜底校验（2026-08-09 检查移至记账前：降级轮零记账——
     #    玩家看到的是原文，剧情/角色记忆不能引用一场没演出的"剧情"；

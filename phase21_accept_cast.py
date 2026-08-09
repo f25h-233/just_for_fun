@@ -186,12 +186,17 @@ def t5_cast_persistence() -> tuple[bool, str]:
 
 
 def t6_style_registry() -> tuple[bool, str]:
-    """文风注册表：默认/未知回退/模板槽位/两文风齐备。"""
+    """文风注册表：默认/未知回退/模板槽位/两文风齐备。
+
+    2026-08-09 更新：{{C数字}} 教学段移入 CHAR_RULES 条件化常量
+    （live 首幕降级修复——空 cast 时解释器看不到语法就不会自造符文），
+    模板槽位由 {roster} 变为 {roster} + {char_rules}。"""
     assert get_style() is STYLES["novel"] and get_style("nope") is STYLES["novel"]
     assert set(STYLES) == {"novel", "wuxia"}
     for s in STYLES.values():
         assert "{roster}" in s.system_template, f"{s.name} 缺 roster 槽位"
-        assert "{{C数字}}" in s.system_template, f"{s.name} 缺 C 符文规则"
+        assert "{char_rules}" in s.system_template, f"{s.name} 缺 char_rules 槽位"
+    assert "{{C数字}}" in NV.CHAR_RULES, "CHAR_RULES 缺 C 符文规则"
     assert "说书人" in STYLES["wuxia"].system_template
     return True, "novel/wuxia 注册齐备，默认与未知均回退日轻"
 
@@ -245,6 +250,28 @@ def check_live() -> tuple[bool, str]:
     )
 
 
+def t8_last_line_strips_plain_runes() -> tuple[bool, str]:
+    """bug #9 回归（2026-08-09 live32f 实测）：last_line 记账自符文形态文本，
+    普通 {{数字}} 是每轮重建的局部编号——跨轮持久化后注入新轮次 roster 会
+    映射错位（{{1}} 在下轮可能=别的词），且解释器回声孤儿符文可能触发残留
+    降级。记账时剥离普通符文；{{Ck}} 跨轮稳定命名空间，保留（roster 点卯
+    依赖它）。"""
+    cast = Cast()
+    cast.update_from_editor(
+        [{"runes": ["{{C1}}"], "name": "小石", "persona": "x", "affinity": 50}],
+        {"{{C1}}": "sqlite3"},
+    )
+    cast.note_appearance(
+        {"{{C1}}", "{{7}}"},
+        '"question": "章节5", "options": [{"label": "小石：我说的{{7}}就是那个'
+        '{{C1}}，回填后{{8}}不能残留。',
+    )
+    ch = cast.characters[1]
+    assert ch.meetings == 1 and ch.absent_rounds == 0, "应记出场并清零缺席"
+    assert "{{" not in ch.last_line, f"last_line 不得含本轮局部符文: {ch.last_line!r}"
+    return True, f"last_line={ch.last_line[:32]!r}，{{{{7}}}}/{{{{8}}}} 已剥离、{{{{C1}}}} 保留"
+
+
 def main() -> None:
     _setup_console()
     parser = argparse.ArgumentParser(description="Phase 2.1 角色档案/文风验收")
@@ -259,6 +286,7 @@ def main() -> None:
         ("T5 cast 持久化", t5_cast_persistence),
         ("T6 文风注册表", t6_style_registry),
         ("T7 坏档回归（真实bug现场）", t7_bad_cast_regression),
+        ("T8 last_line 剥离局部符文（bug9回归）", t8_last_line_strips_plain_runes),
     ]
     if args.live:
         checks.append(("LIVE 真实两轮", check_live))

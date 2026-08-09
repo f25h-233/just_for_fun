@@ -31,7 +31,8 @@ from .style import Style
 from .tools import make_ask_player
 
 REPO = "D:/github/just_for_fun"
-MAX_TURNS = 60  # Phase 3.1：五章大任务需要更多轮次（15 会被多章节会话提前截断）
+MAX_TURNS = 90  # Phase 3.1：五章大任务需要更多轮次（15 会被提前截断；60 仍不够——
+                # 2026-08-09 live 实测 61 轮 err=True 截断在第 5 章中段，77 轮才完成过）
 
 
 class _QuitSignal:

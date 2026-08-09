@@ -22,9 +22,21 @@ import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+# 立档钳制（2026-08-09 live 实测）：编剧把整章 9 个路径/文件词全部
+# 独立立档 → 后续每章载荷 10+ 个 {{C}} 角色符文 + 普通符文，解释器
+# 压力过大开始丢/自造普通符文（第 3 章起连续降级）。宿主按数量钳制
+# 超出的提案丢弃（fail-soft，与编剧契约校验同一哲学）。
+MAX_CHARACTERS = 8          # 周目级角色总量上限
+MAX_NEW_CHARS_PER_ROUND = 3  # 单幕新立档上限
+
 SAVE_PATH = Path(__file__).parent / "save" / "cast.json"
 
 _CHAR_RUNE_RE = re.compile(r"^\{\{C(\d+)\}\}$")
+# 无锚点扫描版（note_appearance 从改写文本里找 {{Ck}}；锚点版只适配单个符文）
+_ANY_RUNE_RE = re.compile(r"\{\{C\d+\}\}")
+# 普通符文（{{数字}}）是每轮重建的局部编号，跨轮持久化会错位——last_line
+# 记账时剥离；{{Ck}} 跨轮稳定命名空间，保留（roster 隔离纪律见下）
+_PLAIN_RUNE_RE = re.compile(r"\{\{\d+\}\}")
 
 
 def merge_key(term: str) -> str:
@@ -47,6 +59,7 @@ class Character:
     affinity: int     # 好感度 0-100，初始 50
     meetings: int     # 出场次数
     last_line: str    # 最近一句台词/互动摘要（≤40 字）
+    absent_rounds: int = 0  # 连续缺席幕数（点卯依据；出场清零，每幕 +1）
     aliases: list[str] = field(default_factory=list)
 
 
@@ -125,14 +138,42 @@ class Cast:
 
     # ---------- 宿主记账（不依赖编剧成败） ----------
 
+    def tick_absent(self) -> None:
+        """每幕开头调用：全体角色连续缺席幕数 +1（出场时 note_appearance 清零）。
+
+        点卯依据（2026-08-09）：立档词与后续幕载荷往往无重叠（五章话题
+        独立），宿主据此选"最久未出场"角色注入【本场必现】段。
+        """
+        for ch in self.characters.values():
+            ch.absent_rounds += 1
+
+    def pick_due_char(self) -> tuple[str, str, int] | None:
+        """选"连续缺席 ≥2 幕"中缺席最久的角色 → (主符文, 形象名, 缺席幕数)。
+
+        None = 没有该出场还没出场的角色（不注入必现段）。
+        """
+        due = [c for c in self.characters.values() if c.absent_rounds >= 2]
+        if not due:
+            return None
+        ch = max(due, key=lambda c: c.absent_rounds)
+        return f"{{{{C{ch.n}}}}}", ch.name, ch.absent_rounds
+
     def note_appearance(self, rune_set: set[str], scene_text: str) -> None:
         """改写成功后记账：出场次数去重 +1、记 last_line、填本轮出场名单。
 
         scene_text 是回填前的改写文本（含 {{Ck}}，据此定位台词）。
+
+        记账集合 = 发出的符文 ∪ 文本中实际出现的已知 {{Ck}} ∪ 形象名直写
+        （2026-08-09 两处实测补丁：① 点卯——本幕载荷无角色词时解释器可凭
+        roster 让角色冒头，符文不在发出集合但角色出场了；② 形象名直写——
+        解释器看 roster 拿到形象名（小石）后直接写名字而非 {{C1}} 符文，
+        玩家侧体验一致但符文扫描不到，按 name 也记账）。
+        出场角色 absent_rounds 清零（缺席计数随记账复位）。
         """
         names = []
+        seen = set(_ANY_RUNE_RE.findall(scene_text))
         runes = sorted(
-            (r for r in rune_set if _CHAR_RUNE_RE.match(r)),
+            (r for r in (set(rune_set) | seen) if _CHAR_RUNE_RE.match(r)),
             key=lambda r: int(_CHAR_RUNE_RE.match(r).group(1)),
         )
         for rune in runes:
@@ -143,6 +184,7 @@ class Cast:
             if ch is None:
                 continue
             ch.meetings += 1
+            ch.absent_rounds = 0
             idx = scene_text.find(rune)
             if idx != -1:
                 # 取符文后的台词片段：去符文本身与 JSON 转义引号
@@ -153,8 +195,25 @@ class Cast:
                     .replace('\\"', '"')
                     .strip()
                 )
-                ch.last_line = seg[:40]
+                ch.last_line = _PLAIN_RUNE_RE.sub("", seg)[:40]
             names.append(ch.name)
+        # 形象名直写：解释器直接用 name 而非符文（按 name 定位台词）
+        for ch in self.characters.values():
+            if ch.n in {self._ph_to_n.get(r) for r in runes}:
+                continue  # 该角色已按符文记账
+            if ch.name and ch.name in scene_text:
+                ch.meetings += 1
+                ch.absent_rounds = 0
+                idx = scene_text.find(ch.name)
+                seg = (
+                    scene_text[idx:idx + 80]
+                    .replace(ch.name, "", 1)
+                    .replace("\\n", " ")
+                    .replace('\\"', '"')
+                    .strip()
+                )
+                ch.last_line = _PLAIN_RUNE_RE.sub("", seg)[:40]
+                names.append(ch.name)
         self.scene_names = names
 
     # ---------- 编剧合并（union，aliases 收紧） ----------
@@ -167,6 +226,12 @@ class Cast:
         （编剧过度合并的异类词不污染角色）。未命中 → 立档
         （n=next_n++，id 预置占位符 {{Cn}} 保持跨轮稳定）。
         返回新立档角色的 id 列表。
+
+        立档钳制（2026-08-09 live 实测）：编剧把整章 9 个路径/文件词
+        全部独立立档 → 后续每章载荷 10+ 个 {{C}} 角色符文 + 普通符文，
+        解释器压力过大开始丢/自造普通符文（第 3 章起连续降级）。宿主
+        侧按数量钳制：单幕新增 ≤MAX_NEW_CHARS_PER_ROUND、总量
+        ≤MAX_CHARACTERS，超出的提案丢弃（fail-soft，与契约校验同哲学）。
         """
         new_ids = []
         for rec in records:
@@ -183,6 +248,11 @@ class Cast:
                 if ch is not None:
                     break
             if ch is None:
+                if (
+                    len(self.characters) >= MAX_CHARACTERS
+                    or len(new_ids) >= MAX_NEW_CHARS_PER_ROUND
+                ):
+                    continue  # 立档上限钳制：超限提案丢弃
                 ch = Character(
                     n=self.next_n, id=terms[0], name=name,
                     persona="", affinity=50, meetings=0, last_line="",
