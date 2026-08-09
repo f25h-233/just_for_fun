@@ -69,7 +69,8 @@ def make_ask_player(
     history/rollback_signal: Phase 3 回档 —— 抉择记录（双存原文+改写）
     与回档信号（宿主据此切断会话并重启）；缺省时回档退化为退出。
     story: Phase 3.2 剧情记忆 —— 解释器改写时注入前情/上一幕（novelize
-    内部记账 summary），玩家选择后宿主 record_scene 更新上一幕。
+    内部记账 summary），玩家选择后宿主 record_scene 更新上一幕；
+    每轮 begin_round 占号，回档路径 story.truncate 与 history 同截断。
     """
     style = style or get_style()
 
@@ -103,9 +104,12 @@ def make_ask_player(
                 ]
             }
         except RollbackRequest as rr:
-            # 回档：截断历史（第 n..end 作废）+ 置信号；不跑编剧
+            # 回档：截断历史（第 n..end 作废）+ 剧情记忆同截断（按轮号
+            # 过滤 + 恢复分支点上一幕）+ 置信号；不跑编剧
             if history is not None:
                 history.truncate(rr.round - 1)
+            if story is not None:
+                story.truncate(rr.round - 1)  # Phase 3.2 回档联动
             if rollback_signal is not None:
                 rollback_signal(rr.round)
             else:

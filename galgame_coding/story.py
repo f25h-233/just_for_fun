@@ -84,7 +84,9 @@ class StoryMemory:
     # ---------- 记账 ----------
 
     def record_summary(self, delta: str, importance=None) -> None:
-        """追加一幕摘要（写回契约）。delta 空白则忽略；importance 钳制。"""
+        """追加一幕摘要（写回契约）。非字符串/空白忽略；importance 钳制。"""
+        if not isinstance(delta, str):
+            return  # fail-soft：坏格式静默忽略（novelize 层有守卫，此处兜底）
         text = delta.strip()[:SUMMARY_MAX_LEN]
         if text:
             self.summaries.append(SummaryEntry(

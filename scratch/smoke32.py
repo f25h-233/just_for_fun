@@ -39,6 +39,7 @@ def main() -> None:
     }
 
     # --- 第一幕：无前情 ---
+    story.begin_round()  # 2026-08-09：轮号机制（tools 每轮占号，此处手动模拟）
     out1 = N.novelize_payload(payload, story=story)
     sys1 = N._call_interpreter.calls[-1]
     assert "【剧本纪律】" in sys1  # 纪律段在
@@ -55,6 +56,7 @@ def main() -> None:
     assert "方案B" in story.prev_scene
 
     # --- 第二幕：前情 + 上一幕注入，顺序固定（纪律段在前，上幕最后） ---
+    story.begin_round()  # 轮号机制
     payload2 = {
         "question": "命令怎么解析？",
         "options": [
@@ -73,12 +75,16 @@ def main() -> None:
 
     # --- 滚动窗口：首条 + 最近 6 条 ---
     for i in range(6):
+        story.begin_round()  # 模拟第 3..8 轮
         story.record_summary(f"第 {i + 3} 幕摘要片段", 1)
     assert len(story.summaries) == 7  # 1 + 6
 
-    # --- 回档 truncate：删第 3..end ---
+    # --- 回档 truncate（2026-08-09 起按轮号过滤，非计数）：
+    #     删轮号 > 2 的条目；上一幕恢复为保留轮里最后一幕 ---
     story.truncate(2)
-    assert len(story.summaries) == 2
+    assert [e.round for e in story.summaries] == [1], \
+        f"只保留轮号 ≤ 2 的条目: {[e.round for e in story.summaries]}"
+    assert "方案B" in story.prev_scene, "上一幕应恢复为分支点锚点（第 1 幕）"
     story.truncate(0)
     assert story.summaries == [] and story.prev_scene == ""
 

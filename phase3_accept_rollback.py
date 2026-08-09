@@ -243,11 +243,11 @@ class _FakeClient:
 
 
 def _fake_make_ask_player(frontend, quit_signal, *, style, cast, read_only,
-                          history, rollback_signal):
+                          history, rollback_signal, story=None):
     """桩 make_ask_player：把信号/历史接缝暴露给假客户端。
 
     quit_signal/rollback_signal 已是可调用（宿主传的是 _QuitSignal 的
-    绑定方法），直接透传。
+    绑定方法），直接透传。story 为 Phase 3.2 剧情记忆（本桩不用，占位）。
     """
     _FakeClient._history = history
     _FakeClient._quit_fn = quit_signal
