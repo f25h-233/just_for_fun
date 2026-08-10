@@ -56,7 +56,7 @@ _RUNE_RE = re.compile(r"^\{\{C?\d+\}\}$")
 
 
 def _call_editor(prompt_text: str, system_prompt: str) -> str | None:
-    """同步调 webagent.py（DeepSeek 网页版），返回其 --json stdout。
+    """同步调 webagent.py（默认 OpenCode Go 订阅 API，网页版兜底），返回其 --json stdout。
 
     失败（网络/凭证/超时/非零退出）返回 None，由调用方沿用旧档案。
     """

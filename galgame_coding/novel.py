@@ -2,7 +2,7 @@
 
 nonce 占位符方案（项目记忆定稿，保证"关键名词可人格化但词不能变"）：
 1. 宿主从载荷提取关键名词（技术名词/路径/命令）→ 替换为 {{N}} 占位符
-2. 解释器副 agent（webagent.py 调 DeepSeek 网页版，零 API 费用）
+2. 解释器副 agent（webagent.py，默认 OpenCode Go 订阅 API，渠道自动降级）
    看不见原词，可自由发挥人格化，但占位符必须原样保留
 3. 渲染前代码层回填 {{N}} → 原文
 
@@ -199,14 +199,14 @@ def _parse_interpreter(raw: str) -> dict | None:
 
 
 def _call_interpreter(payload_json: str, system_prompt: str, retries: int = 1) -> str | None:
-    """同步调 webagent.py（DeepSeek 网页版），返回其 --json stdout。
+    """同步调 webagent.py（默认 OpenCode Go 订阅 API，网页版兜底），返回其 --json stdout。
 
     失败（网络/凭证/超时/非零退出）返回 None，由调用方降级。
     system_prompt 由文风（style.py）提供。失败原因打印到终端
     （2026-08-08 增加可观测性：此前只打 fallback_hint，无法诊断）。
 
-    retries：失败重试次数（2026-08-09 live 实测：DeepSeek 网页版
-    输出截断/超时是随机故障，重试一次成功率可观，显著降低无谓降级）。
+    retries：失败重试次数（2026-08-09 live 实测：模型输出
+    截断/超时是随机故障，重试一次成功率可观，显著降低无谓降级）。
     """
     last_reason = "未知故障"
     for attempt in range(retries + 1):
@@ -223,7 +223,8 @@ def _call_interpreter(payload_json: str, system_prompt: str, retries: int = 1) -
             last_reason = f"召唤失败（{type(exc).__name__}）"
             continue
         if proc.returncode != 0:
-            tail = proc.stderr.strip().splitlines()[-1][:80] if proc.stderr.strip() else "无诊断输出"
+            tail = proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else "无诊断输出"
+            tail = tail[:300] + ("…" if len(tail) > 300 else "")  # 截断加省略号, 不无声吞字
             last_reason = f"退出码 {proc.returncode}（{tail}）"
             continue
         return proc.stdout

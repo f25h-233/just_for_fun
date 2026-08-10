@@ -54,16 +54,22 @@ class _QuitSignal:
         self.requested = True
 
 
+def _clip(s: str, n: int = 400) -> str:
+    """限长显示：截断处加省略号（截断必须可见——之前 [:60]/[:80] 无声吞字，
+    玩家看不到被切掉的问题/选项内容，还以为是显示 bug）。"""
+    return s if len(s) <= n else s[:n] + "…"
+
+
 def _summarize(msg: AssistantMessage) -> str:
     """把 AssistantMessage 压成单行摘要（承自 phase0_intercept.py 的思路）。"""
     parts = []
     for b in msg.content:
         if isinstance(b, TextBlock):
-            parts.append(f"text: {b.text[:80]!r}")
+            parts.append(f"text: {_clip(b.text)!r}")
         elif isinstance(b, ThinkingBlock):
             parts.append("thinking…")
         elif isinstance(b, ToolUseBlock):
-            args = str(b.input)[:60] if b.input else ""
+            args = _clip(str(b.input), 800) if b.input else ""
             parts.append(f"tool_use: {b.name}{args}")
         else:
             parts.append(type(b).__name__)
