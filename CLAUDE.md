@@ -12,7 +12,7 @@ just_for_fun —— 兴趣项目集合，每个项目一个文件夹。当前仓
 - **Phase 2.1（已完成，2026-08-08）**：文风模块化（`style.py`：日轻 + 武侠可切换）+ 角色档案（`characters.py`：技术名词人格化/持久化，`{{C<n>}}` 独立命名空间跨轮稳定 + `editor.py` 编剧副 agent 每轮更新档案）。离线验收 6/6。
 - **Phase 3（已完成，2026-08-08）**：回档。玩家在抉择输入 `r` → 回档子菜单选目标轮次 → **切断当前会话 + 重建任务描述（已确定剧情摘要 + 回档指令）重启新会话**（SDK 会话内无法回退，回档 = 新会话）。核心：`history.py`（抉择历史 + 截断语义）、`prompt.py` 回档段追加在任务之后、`galgame.py` 外层回档循环。离线验收 10/10（`phase3_accept_rollback.py`）。
 - **Phase 3.2（补全阶段完成 2026-08-09）**：主线贯穿 + 角色出场 + "神似"对应（四路调研定稿）。核心：`story.py` 剧情记忆（宿主侧双层记忆：上一幕全文 + 每幕摘要滚动窗口）+ 解释器提示词 v2（剧本纪律共享段 `_STORY_RULES`：幕四拍/主角在场/角色纪律/幕间链接/对应法则/写回契约）+ 写回契约（解释器同次调用输出 `summary_delta`/`importance`，宿主记账，零新增调用）。**缺陷诊断（实测证据）**：cast.json 11 词立档 4 形象但 meetings 几乎全 0（角色被立档但从不进正文）；改写只是逐条文学化复述选项（无主线、选项像方案列表）。**补全阶段（2026-08-09）**：回档联动（story.truncate 接入 tools.py + 轮号对齐机制，见结论 17）+ 离线验收 `phase32_accept_story.py` 9/9（含降级轮对齐核心回归）。
-**live 复测（2026-08-09 完成）**：五章真实会话 6 轮，修复 8 个真 bug（空 cast 条件化 `CHAR_RULES` 禁自造符文 / MAX_TURNS 60→90 / 立档钳制 `MAX_CHARACTERS=8`+`MAX_NEW_CHARS_PER_ROUND=3` / 自造编号禁令 / DeepSeek 随机故障双层重试 / 点卯结构性修复三件套（unmask 补 cast 全量回填 + note_appearance 扫 `_ANY_RUNE_RE` + 注入条件放宽）/ 必现注入 `pick_due_char` 缺席 ≥2 幕点名 / 形象名直写记账 name 扫描）+ 最终轮（live32f）验收：`err=False 71 turns $2.70`、抉择 5/5、cast meetings>0 好感跨轮累积（小石 3/55、沃克桑 2/52、刻若 1/50）、必现点卯实证（刻若缺席 3 幕 ch5 登场）、零结构性降级（1 次 ch2 模型服从性 flake：解释器把 {{1}}="tasks" 意译掉，重试仅覆盖解析失败、不覆盖残留符文——留待改进）；**bug 9 修复（验收后）**：last_line 记账剥离本轮局部普通符文 `{{数字}}`（跨轮错位隐患；`{{Ck}}` 跨轮稳定保留），回归 T8 进 phase21 8/8。webagent 可用性：国内令牌 + 无代理直连（令牌在 `~/.webagent_cred.json`）。
+**live 复测（2026-08-09 完成）**：五章真实会话 6 轮，修复 8 个真 bug（空 cast 条件化 `CHAR_RULES` 禁自造符文 / MAX_TURNS 60→90 / 立档钳制 `MAX_CHARACTERS=8`+`MAX_NEW_CHARS_PER_ROUND=3` / 自造编号禁令 / DeepSeek 随机故障双层重试 / 点卯结构性修复三件套（unmask 补 cast 全量回填 + note_appearance 扫 `_ANY_RUNE_RE` + 注入条件放宽）/ 必现注入 `pick_due_char` 缺席 ≥2 幕点名 / 形象名直写记账 name 扫描）+ 最终轮（live32f）验收：`err=False 71 turns $2.70`、抉择 5/5、cast meetings>0 好感跨轮累积（小石 3/55、沃克桑 2/52、刻若 1/50）、必现点卯实证（刻若缺席 3 幕 ch5 登场）、零结构性降级（1 次 ch2 模型服从性 flake：解释器把 {{1}}="tasks" 意译掉，重试仅覆盖解析失败、不覆盖残留符文——留待改进）；**bug 9 修复（验收后）**：last_line 记账剥离本轮局部普通符文 `{{数字}}`（跨轮错位隐患；`{{Ck}}` 跨轮稳定保留），回归 T8 进 phase21 8/8。webagent 可用性：国内令牌 + 无代理直连；**2026-08-10 起默认渠道改为 OpenCode Go 订阅 API（`deepseek-v4-flash`，key 在 `~/.webagent_cred.json` 的 `ds_api_key`）**——DeepSeek 网页版账号触发风控被封，网页版降为兜底渠道。
 - TardigradeMail（时光信）已迁出到 `../future_mail/`，此仓库不再涉及。
 
 工作语言为中文（zh-CN）：README、docstring、注释、prompt 均为中文。
@@ -65,7 +65,7 @@ python -m galgame_coding.cli --style wuxia   # 武侠文风（解释器口吻切
 python -m galgame_coding.cli --reset-cast    # 清空角色档案（新周目/换角色）
 ```
 
-**注意**：抉择改写走 `novel.py`（Phase 2 默认开启）；每次抉择触发**两次** DeepSeek 网页版调用（解释器改写 + 编剧更新角色档案，各数秒，零 API 费用），任何失败自动降级（原文直出 / 沿用旧档案），不阻塞游戏。
+**注意**：抉择改写走 `novel.py`（Phase 2 默认开启）；每次抉择触发**两次** webagent 调用（解释器改写 + 编剧更新角色档案，各数秒；默认走 OpenCode Go 订阅 API `deepseek-v4-flash`，网页版免费兜底——2026-08-10 起因 DeepSeek 网页版账号触发风控切换），任何失败自动降级（原文直出 / 沿用旧档案），不阻塞游戏。
 
 **注意（Phase 3 回档）**：游戏内抉择输入 `r` 进入回档子菜单（至少完成一轮后可用）。**每次回档 = 一次新的真实 Claude Code 会话 = 额外 API 费用**，无次数上限；回档不改角色档案（cast.json 保留，角色记得之前的分支）；History 不持久化，会话级 Ctrl+C 打断即丢失。
 
